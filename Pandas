@@ -1,0 +1,46 @@
+import pandas as pd
+import numpy as np
+import yfinance as yf
+
+def backtest_strategy(data, strategy_func, initial_capital=10000):
+    data['signal'] = strategy_func(data)
+    data['position'] = data['signal'].shift(1)
+    data['returns'] = data['Close'] / data['Close'].shift(1) - 1
+    data['strategy_returns'] = data['position'] * data['returns']
+    data['cumulative_returns'] = (1 + data['strategy_returns']).cumprod()
+    data['cumulative_returns'] *= initial_capital
+    return data
+
+def moving_average_crossover(data, short_window=50, long_window=200):
+    data['short_ma'] = data['Close'].rolling(window=short_window).mean()
+    data['long_ma'] = data['Close'].rolling(window=long_window).mean()
+    data['signal'] = np.where(data['short_ma'] > data['long_ma'], 1, 0)
+    return data['signal']
+
+def rsi_strategy(data, window=14, buy_threshold=30, sell_threshold=70):
+    delta = data['Close'].diff()
+    gain = delta.where(delta > 0, 0)
+    loss = -delta.where(delta < 0, 0)
+    avg_gain = gain.rolling(window=window).mean()
+    avg_loss = loss.rolling(window=window).mean()
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    data['signal'] = np.where(rsi < buy_threshold, 1, np.where(rsi > sell_threshold, 0, np.nan))
+    data['signal'].fillna(method='ffill', inplace=True)
+    return data['signal']
+
+# Fetch historical stock data
+symbol = 'AAPL'
+start_date = '2010-01-01'
+end_date = '2023-06-08'
+data = yf.download(symbol, start=start_date, end=end_date)
+
+# Backtest moving average crossover strategy
+ma_crossover_results = backtest_strategy(data.copy(), moving_average_crossover)
+print("Moving Average Crossover Strategy:")
+print("Final portfolio value: $%.2f" % ma_crossover_results['cumulative_returns'].iloc[-1])
+
+# Backtest RSI strategy
+rsi_results = backtest_strategy(data.copy(), rsi_strategy)
+print("\nRSI Strategy:")
+print("Final portfolio value: $%.2f" % rsi_results['cumulative_returns'].iloc[-1])
